@@ -25,8 +25,8 @@ export function DiffViewer({ filePath, oldString, newString }: Props) {
   const deletions = lines.filter((line) => line.type === 'removed').length
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-[#d0d7de] bg-[#f6f8fa] text-[#24292f]">
-      <div className="flex items-center justify-between border-b border-[#d0d7de] bg-white px-3 py-2">
+    <div className="overflow-hidden rounded-lg border border-[#d0d7de] bg-[#f6f8fa] text-[#24292f]">
+      <div className="flex items-center justify-between border-b border-[#d0d7de] bg-white px-3 py-1.5">
         <div className="min-w-0">
           <div className="truncate font-[var(--font-mono)] text-[11px] text-[#57606a]">
             {filePath}
@@ -49,10 +49,10 @@ export function DiffViewer({ filePath, oldString, newString }: Props) {
           {lines.map((line, index) => {
             const rowClass =
               line.type === 'added'
-                ? 'bg-[#f0fff4]'
+                ? 'bg-[#dafbe1]/60 border-l-2 border-l-[#1a7f37]'
                 : line.type === 'removed'
-                  ? 'bg-[#fff8f8]'
-                  : 'bg-white'
+                  ? 'bg-[#ffebe9]/60 border-l-2 border-l-[#cf222e]'
+                  : 'bg-white border-l-2 border-l-transparent'
             const prefix = line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' '
             const prefixColor =
               line.type === 'added'
@@ -64,16 +64,16 @@ export function DiffViewer({ filePath, oldString, newString }: Props) {
             return (
               <div
                 key={`${line.oldLineNo}-${line.newLineNo}-${index}`}
-                className={`grid grid-cols-[3rem,3rem,1.25rem,minmax(0,1fr)] gap-0 font-[var(--font-mono)] text-[12px] leading-[1.45] ${rowClass}`}
+                className={`grid grid-cols-[2.5rem,2.5rem,1.25rem,minmax(0,1fr)] gap-0 font-[var(--font-mono)] text-[12px] leading-[1.3] ${rowClass}`}
               >
-                <span className="select-none border-r border-[#d8dee4] px-2 py-1 text-right text-[11px] text-[#57606a]">
+                <span className="select-none border-r border-[#eaeef2] px-2 py-px text-right text-[11px] text-[#8b949e]">
                   {line.oldLineNo ?? ''}
                 </span>
-                <span className="select-none border-r border-[#d8dee4] px-2 py-1 text-right text-[11px] text-[#57606a]">
+                <span className="select-none border-r border-[#eaeef2] px-2 py-px text-right text-[11px] text-[#8b949e]">
                   {line.newLineNo ?? ''}
                 </span>
-                <span className={`border-r border-[#d8dee4] px-1 py-1 text-center ${prefixColor}`}>{prefix}</span>
-                <span className="whitespace-pre-wrap break-words px-3 py-1 text-[#24292f]">{line.content}</span>
+                <span className={`border-r border-[#eaeef2] px-1 py-px text-center ${prefixColor}`}>{prefix}</span>
+                <span className="whitespace-pre-wrap break-words px-3 py-px text-[#24292f]">{line.content}</span>
               </div>
             )
           })}
