@@ -7,9 +7,8 @@ import { Input } from '../components/shared/Input'
 import { Button } from '../components/shared/Button'
 import type { PermissionMode, EffortLevel, ThemeMode } from '../types/settings'
 import type { Locale } from '../i18n'
-import { PROVIDER_PRESETS } from '../config/providerPresets'
-import type { ProviderPreset } from '../config/providerPresets'
 import type { SavedProvider, UpdateProviderInput, ProviderTestResult, ModelMapping, ApiFormat } from '../types/provider'
+import type { ProviderPreset } from '../types/providerPreset'
 import { AdapterSettings } from './AdapterSettings'
 import { useAgentStore } from '../stores/agentStore'
 import { useSessionStore } from '../stores/sessionStore'
@@ -100,14 +99,34 @@ function TabButton({ icon, label, active, onClick }: { icon: string; label: stri
 // ─── Provider Settings ──────────────────────────────────────
 
 function ProviderSettings() {
-  const { providers, activeId, isLoading, fetchProviders, deleteProvider, activateProvider, activateOfficial, testProvider } = useProviderStore()
+  const {
+    providers,
+    activeId,
+    presets,
+    isLoading,
+    isPresetsLoading,
+    fetchProviders,
+    fetchPresets,
+    deleteProvider,
+    activateProvider,
+    activateOfficial,
+    testProvider,
+  } = useProviderStore()
   const fetchSettings = useSettingsStore((s) => s.fetchAll)
   const t = useTranslation()
   const [editingProvider, setEditingProvider] = useState<SavedProvider | null>(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [testResults, setTestResults] = useState<Record<string, { loading: boolean; result?: ProviderTestResult }>>({})
 
-  useEffect(() => { fetchProviders() }, [fetchProviders])
+  useEffect(() => {
+    void fetchProviders()
+    void fetchPresets()
+  }, [fetchPresets, fetchProviders])
+
+  const presetMap = useMemo(
+    () => new Map(presets.map((preset) => [preset.id, preset])),
+    [presets],
+  )
 
   const handleDelete = async (provider: SavedProvider) => {
     if (activeId === provider.id) return
@@ -144,7 +163,7 @@ function ProviderSettings() {
           <h2 className="text-base font-semibold text-[var(--color-text-primary)]">{t('settings.providers.title')}</h2>
           <p className="text-sm text-[var(--color-text-tertiary)] mt-0.5">{t('settings.providers.description')}</p>
         </div>
-        <Button size="sm" onClick={() => setShowCreateModal(true)}>
+        <Button size="sm" onClick={() => setShowCreateModal(true)} disabled={isPresetsLoading || presets.length === 0}>
           <span className="material-symbols-outlined text-[16px]">add</span>
           {t('settings.providers.addProvider')}
         </Button>
@@ -191,7 +210,7 @@ function ProviderSettings() {
           {providers.map((provider) => {
             const isActive = activeId === provider.id
             const test = testResults[provider.id]
-            const preset = PROVIDER_PRESETS.find((p) => p.id === provider.presetId)
+            const preset = presetMap.get(provider.presetId)
             return (
               <div
                 key={provider.id}
@@ -255,12 +274,12 @@ function ProviderSettings() {
 
       {/* Create Modal — conditionally rendered so state resets on close */}
       {showCreateModal && (
-        <ProviderFormModal open={true} onClose={() => setShowCreateModal(false)} mode="create" />
+        <ProviderFormModal open={true} onClose={() => setShowCreateModal(false)} mode="create" presets={presets} />
       )}
 
       {/* Edit Modal */}
       {editingProvider && (
-        <ProviderFormModal key={editingProvider.id} open={true} onClose={() => setEditingProvider(null)} mode="edit" provider={editingProvider} />
+        <ProviderFormModal key={editingProvider.id} open={true} onClose={() => setEditingProvider(null)} mode="edit" provider={editingProvider} presets={presets} />
       )}
     </div>
   )
@@ -273,6 +292,7 @@ type ProviderFormProps = {
   onClose: () => void
   mode: 'create' | 'edit'
   provider?: SavedProvider
+  presets: ProviderPreset[]
 }
 
 function requirePreset(preset: ProviderPreset | undefined): ProviderPreset {
@@ -282,15 +302,27 @@ function requirePreset(preset: ProviderPreset | undefined): ProviderPreset {
   return preset
 }
 
-function ProviderFormModal({ open, onClose, mode, provider }: ProviderFormProps) {
+function buildFallbackPreset(provider?: SavedProvider): ProviderPreset {
+  return {
+    id: provider?.presetId ?? 'custom',
+    name: provider?.name ?? 'Custom',
+    baseUrl: provider?.baseUrl ?? '',
+    apiFormat: provider?.apiFormat ?? 'anthropic',
+    defaultModels: provider?.models ?? { main: '', haiku: '', sonnet: '', opus: '' },
+    needsApiKey: true,
+    websiteUrl: '',
+  }
+}
+
+function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderFormProps) {
   const { createProvider, updateProvider, testConfig } = useProviderStore()
   const fetchSettings = useSettingsStore((s) => s.fetchAll)
   const t = useTranslation()
 
-  const availablePresets = PROVIDER_PRESETS.filter((p) => p.id !== 'official')
-  const fallbackPreset = requirePreset(
-    availablePresets[availablePresets.length - 1] ?? PROVIDER_PRESETS[0],
-  )
+  const availablePresets = presets.filter((p) => p.id !== 'official')
+  const fallbackPreset = provider
+    ? buildFallbackPreset(provider)
+    : requirePreset(availablePresets[availablePresets.length - 1])
   const initialPreset = requirePreset(
     provider
       ? availablePresets.find((p) => p.id === provider.presetId) ?? fallbackPreset

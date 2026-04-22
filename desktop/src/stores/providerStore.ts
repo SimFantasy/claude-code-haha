@@ -10,6 +10,7 @@ import type {
   TestProviderConfigInput,
   ProviderTestResult,
 } from '../types/provider'
+import type { ProviderPreset } from '../types/providerPreset'
 
 // 与后端 src/server/api/models.ts 的 DEFAULT_MODEL 保持一致:
 // 切回"官方"时把聊天页的 currentModel 重置到这个,避免残留第三方 provider
@@ -19,10 +20,13 @@ const OFFICIAL_DEFAULT_MODEL_ID = 'claude-opus-4-7'
 type ProviderStore = {
   providers: SavedProvider[]
   activeId: string | null
+  presets: ProviderPreset[]
   isLoading: boolean
+  isPresetsLoading: boolean
   error: string | null
 
   fetchProviders: () => Promise<void>
+  fetchPresets: () => Promise<void>
   createProvider: (input: CreateProviderInput) => Promise<SavedProvider>
   updateProvider: (id: string, input: UpdateProviderInput) => Promise<SavedProvider>
   deleteProvider: (id: string) => Promise<void>
@@ -35,7 +39,9 @@ type ProviderStore = {
 export const useProviderStore = create<ProviderStore>((set, get) => ({
   providers: [],
   activeId: null,
+  presets: [],
   isLoading: false,
+  isPresetsLoading: false,
   error: null,
 
   fetchProviders: async () => {
@@ -45,6 +51,16 @@ export const useProviderStore = create<ProviderStore>((set, get) => ({
       set({ providers, activeId, isLoading: false })
     } catch (err) {
       set({ isLoading: false, error: err instanceof Error ? err.message : String(err) })
+    }
+  },
+
+  fetchPresets: async () => {
+    set({ isPresetsLoading: true, error: null })
+    try {
+      const { presets } = await providersApi.presets()
+      set({ presets, isPresetsLoading: false })
+    } catch (err) {
+      set({ isPresetsLoading: false, error: err instanceof Error ? err.message : String(err) })
     }
   },
 

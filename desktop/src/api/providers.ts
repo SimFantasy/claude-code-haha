@@ -8,7 +8,7 @@ import type {
   TestProviderConfigInput,
   ProviderTestResult,
 } from '../types/provider'
-import type { ProviderPreset } from '../config/providerPresets'
+import type { ProviderPreset } from '../types/providerPreset'
 
 type ProvidersResponse = { providers: SavedProvider[]; activeId: string | null }
 type ProviderResponse = { provider: SavedProvider }
