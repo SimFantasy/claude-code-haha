@@ -572,6 +572,7 @@ export const en = {
   'slash.inspector.usage.tokens': 'Tokens',
   'slash.inspector.usage.noModelTitle': 'No model usage',
   'slash.inspector.usage.noModelBody': 'Token usage will appear here after a model response is recorded.',
+  'slash.inspector.context.loading': 'Loading context data',
   'slash.inspector.context.emptyTitle': 'No context data yet',
   'slash.inspector.context.emptyBody': 'Context usage requires an active CLI session.',
   'slash.inspector.context.windowUsage': 'Context window usage',

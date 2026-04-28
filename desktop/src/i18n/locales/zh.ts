@@ -574,6 +574,7 @@ export const zh: Record<TranslationKey, string> = {
   'slash.inspector.usage.tokens': 'Tokens',
   'slash.inspector.usage.noModelTitle': '暂无模型用量',
   'slash.inspector.usage.noModelBody': '记录到模型回复后，这里会显示 token 用量。',
+  'slash.inspector.context.loading': '正在加载上下文数据',
   'slash.inspector.context.emptyTitle': '暂无上下文数据',
   'slash.inspector.context.emptyBody': '上下文用量需要活跃的 CLI 会话。',
   'slash.inspector.context.windowUsage': '上下文窗口用量',

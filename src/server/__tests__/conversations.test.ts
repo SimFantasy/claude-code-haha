@@ -278,6 +278,61 @@ describe('ConversationService', () => {
       await fs.rm(workDir, { recursive: true, force: true })
     }
   })
+
+  it('should reconstruct Sonnet 4.6 transcript usage before CLI config is initialized', async () => {
+    const previousConfigDir = process.env.CLAUDE_CONFIG_DIR
+    const previousNodeEnv = process.env.NODE_ENV
+    const tmpConfigDir = await fs.mkdtemp(path.join(os.tmpdir(), 'claude-transcript-sonnet-'))
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'claude-workdir-sonnet-'))
+    process.env.CLAUDE_CONFIG_DIR = tmpConfigDir
+    process.env.NODE_ENV = 'development'
+
+    try {
+      const svc = new SessionService()
+      const { sessionId } = await svc.createSession(workDir)
+      const found = await svc.findSessionFile(sessionId)
+      expect(found).not.toBeNull()
+
+      await fs.appendFile(found!.filePath, JSON.stringify({
+        type: 'assistant',
+        uuid: crypto.randomUUID(),
+        timestamp: '2026-04-27T12:00:00.000Z',
+        cwd: workDir,
+        version: '999.0.0-test',
+        message: {
+          role: 'assistant',
+          model: 'claude-sonnet-4-6',
+          content: [{ type: 'text', text: 'hello' }],
+          usage: {
+            input_tokens: 100,
+            output_tokens: 20,
+          },
+        },
+      }) + '\n')
+
+      const usage = await svc.getTranscriptUsage(sessionId)
+      const contextEstimate = await svc.getTranscriptContextEstimate(sessionId)
+
+      expect(usage?.models[0]?.model).toBe('claude-sonnet-4-6')
+      expect(usage?.models[0]?.contextWindow).toBe(200_000)
+      expect(contextEstimate?.model).toBe('claude-sonnet-4-6')
+      expect(contextEstimate?.totalTokens).toBe(100)
+      expect(contextEstimate?.rawMaxTokens).toBe(200_000)
+    } finally {
+      if (previousConfigDir === undefined) {
+        delete process.env.CLAUDE_CONFIG_DIR
+      } else {
+        process.env.CLAUDE_CONFIG_DIR = previousConfigDir
+      }
+      if (previousNodeEnv === undefined) {
+        delete process.env.NODE_ENV
+      } else {
+        process.env.NODE_ENV = previousNodeEnv
+      }
+      await fs.rm(tmpConfigDir, { recursive: true, force: true })
+      await fs.rm(workDir, { recursive: true, force: true })
+    }
+  })
 })
 
 // ============================================================================
@@ -636,6 +691,12 @@ describe('WebSocket Chat Integration', () => {
     expect(body.usage.source).toBe('current_process')
     expect(body.context.model).toBe('mock-opus')
     expect(body.status.mcpServers).toEqual([{ name: 'mock', status: 'connected' }])
+
+    const basicRes = await fetch(`${baseUrl}/api/sessions/${sessionId}/inspection?includeContext=0`)
+    expect(basicRes.status).toBe(200)
+    const basicBody = await basicRes.json() as any
+    expect(basicBody.usage.source).toBe('current_process')
+    expect(basicBody.context).toBeUndefined()
   })
 
   it('should complete the client turn when the CLI exits after startup', async () => {

@@ -106,7 +106,7 @@ export async function handleSessionsApi(
           { status: 405 }
         )
       }
-      return await getSessionInspection(sessionId)
+      return await getSessionInspection(sessionId, url)
     }
 
     // Route to conversations handler if sub-resource is 'chat'
@@ -217,7 +217,8 @@ async function getSessionSlashCommands(sessionId: string): Promise<Response> {
   return Response.json({ commands: slashCommands })
 }
 
-async function getSessionInspection(sessionId: string): Promise<Response> {
+async function getSessionInspection(sessionId: string, url: URL): Promise<Response> {
+  const includeContext = url.searchParams.get('includeContext') !== '0'
   const workDir =
     conversationService.getSessionWorkDir(sessionId) ||
     await sessionService.getSessionWorkDir(sessionId)
@@ -264,6 +265,10 @@ async function getSessionInspection(sessionId: string): Promise<Response> {
     errors: {},
   }
   const transcriptUsage = await sessionService.getTranscriptUsage(sessionId)
+  const transcriptContextEstimate = await sessionService.getTranscriptContextEstimate(sessionId)
+  if (transcriptContextEstimate) {
+    response.contextEstimate = transcriptContextEstimate
+  }
 
   if (!active) {
     if (transcriptUsage) {
@@ -271,15 +276,18 @@ async function getSessionInspection(sessionId: string): Promise<Response> {
     }
     response.errors = {
       ...(transcriptUsage ? {} : { usage: 'CLI session is not running' }),
-      context: 'CLI session is not running',
+      ...(includeContext ? { context: 'CLI session is not running' } : {}),
     }
     return Response.json(response)
   }
 
+  const basicControlTimeoutMs = includeContext ? 10_000 : 4_000
   const [usageResult, contextResult, mcpResult] = await Promise.allSettled([
-    conversationService.requestControl(sessionId, { subtype: 'get_session_usage' }),
-    conversationService.requestControl(sessionId, { subtype: 'get_context_usage' }, 20_000),
-    conversationService.requestControl(sessionId, { subtype: 'mcp_status' }),
+    conversationService.requestControl(sessionId, { subtype: 'get_session_usage' }, basicControlTimeoutMs),
+    includeContext
+      ? conversationService.requestControl(sessionId, { subtype: 'get_context_usage' }, 20_000)
+      : Promise.resolve(null),
+    conversationService.requestControl(sessionId, { subtype: 'mcp_status' }, basicControlTimeoutMs),
   ])
 
   const errors: Record<string, string> = {}
@@ -296,7 +304,10 @@ async function getSessionInspection(sessionId: string): Promise<Response> {
     }
   }
 
-  if (contextResult.status === 'fulfilled') {
+  if (!includeContext) {
+    // Context can be expensive on large live sessions. The desktop UI loads it
+    // separately when the context tab is actually selected.
+  } else if (contextResult.status === 'fulfilled' && contextResult.value) {
     response.context = contextResult.value
   } else {
     errors.context = contextResult.reason instanceof Error ? contextResult.reason.message : String(contextResult.reason)

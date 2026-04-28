@@ -135,6 +135,7 @@ export type SessionInspectionResponse = {
   }
   usage?: SessionUsageSnapshot
   context?: SessionContextSnapshot
+  contextEstimate?: SessionContextSnapshot
   errors?: Record<string, string>
 }
 
@@ -177,9 +178,12 @@ export const sessionsApi = {
     return api.get<{ commands: Array<{ name: string; description: string }> }>(`/api/sessions/${sessionId}/slash-commands`)
   },
 
-  getInspection(sessionId: string) {
-    return api.get<SessionInspectionResponse>(`/api/sessions/${sessionId}/inspection`, {
-      timeout: 25_000,
+  getInspection(sessionId: string, options?: { includeContext?: boolean; timeout?: number }) {
+    const query = options?.includeContext === undefined
+      ? ''
+      : `?includeContext=${options.includeContext ? '1' : '0'}`
+    return api.get<SessionInspectionResponse>(`/api/sessions/${sessionId}/inspection${query}`, {
+      timeout: options?.timeout ?? (options?.includeContext ? 45_000 : 25_000),
     })
   },
 

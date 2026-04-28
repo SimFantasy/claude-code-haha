@@ -12,7 +12,11 @@ import { ApiError } from '../middleware/errorHandler.js'
 import { sanitizePath as sanitizePortablePath } from '../../utils/sessionStoragePortable.js'
 import type { FileHistorySnapshot } from '../../utils/fileHistory.js'
 import { calculateUSDCost, MODEL_COSTS } from '../../utils/modelCost.js'
-import { getContextWindowForModel, getModelMaxOutputTokens } from '../../utils/context.js'
+import {
+  MODEL_CONTEXT_WINDOW_DEFAULT,
+  getContextWindowForModel,
+  getModelMaxOutputTokens,
+} from '../../utils/context.js'
 import { getCanonicalName } from '../../utils/model/model.js'
 
 // ============================================================================
@@ -91,6 +95,37 @@ export type TranscriptMetadataSnapshot = {
   model?: string
   cwd?: string
   version?: string
+}
+
+export type TranscriptContextEstimate = {
+  categories: Array<{
+    name: string
+    tokens: number
+    color: string
+    isDeferred?: boolean
+  }>
+  totalTokens: number
+  maxTokens: number
+  rawMaxTokens: number
+  percentage: number
+  gridRows: Array<Array<{
+    color: string
+    isFilled: boolean
+    categoryName: string
+    tokens: number
+    percentage: number
+    squareFullness: number
+  }>>
+  model: string
+  memoryFiles: Array<{ path: string; type: string; tokens: number }>
+  mcpTools: Array<{ name: string; serverName: string; tokens: number; isLoaded?: boolean }>
+  agents: Array<{ agentType: string; source: string; tokens: number }>
+  apiUsage: {
+    input_tokens: number
+    output_tokens: number
+    cache_creation_input_tokens: number
+    cache_read_input_tokens: number
+  }
 }
 
 /** Raw entry parsed from a single JSONL line */
@@ -704,6 +739,20 @@ export class SessionService {
     return `$${cost > 0.5 ? (Math.round(cost * 100) / 100).toFixed(2) : cost.toFixed(4)}`
   }
 
+  private getTranscriptContextWindow(model: string): number {
+    try {
+      return getContextWindowForModel(model)
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        err.message.includes('Config accessed before allowed')
+      ) {
+        return MODEL_CONTEXT_WINDOW_DEFAULT
+      }
+      throw err
+    }
+  }
+
   async getTranscriptMetadata(sessionId: string): Promise<TranscriptMetadataSnapshot | null> {
     const found = await this.findSessionFile(sessionId)
     if (!found) return null
@@ -726,6 +775,88 @@ export class SessionService {
     }
 
     return metadata
+  }
+
+  async getTranscriptContextEstimate(sessionId: string): Promise<TranscriptContextEstimate | null> {
+    const found = await this.findSessionFile(sessionId)
+    if (!found) return null
+
+    const entries = await this.readJsonlFile(found.filePath)
+    let latest: {
+      model: string
+      inputTokens: number
+      outputTokens: number
+      cacheReadInputTokens: number
+      cacheCreationInputTokens: number
+    } | null = null
+
+    for (const entry of entries) {
+      const usage = entry.message?.usage
+      const model = entry.message?.model
+      if (!usage || typeof model !== 'string') continue
+
+      const inputTokens = typeof usage.input_tokens === 'number' ? usage.input_tokens : 0
+      const outputTokens = typeof usage.output_tokens === 'number' ? usage.output_tokens : 0
+      const cacheReadInputTokens = typeof usage.cache_read_input_tokens === 'number' ? usage.cache_read_input_tokens : 0
+      const cacheCreationInputTokens = typeof usage.cache_creation_input_tokens === 'number' ? usage.cache_creation_input_tokens : 0
+      const promptTokens = inputTokens + cacheReadInputTokens + cacheCreationInputTokens
+      if (promptTokens === 0 && outputTokens === 0) continue
+
+      latest = {
+        model,
+        inputTokens,
+        outputTokens,
+        cacheReadInputTokens,
+        cacheCreationInputTokens,
+      }
+    }
+
+    if (!latest) return null
+
+    const rawMaxTokens = this.getTranscriptContextWindow(latest.model)
+    const totalTokens = latest.inputTokens + latest.cacheReadInputTokens + latest.cacheCreationInputTokens
+    const percentage = rawMaxTokens > 0 ? Math.round((totalTokens / rawMaxTokens) * 100) : 0
+    const categories: TranscriptContextEstimate['categories'] = [
+      { name: 'Input tokens', tokens: latest.inputTokens, color: '#8f3217' },
+      { name: 'Cache read', tokens: latest.cacheReadInputTokens, color: '#0f5c8f' },
+      { name: 'Cache write', tokens: latest.cacheCreationInputTokens, color: '#7c3aed' },
+      { name: 'Free space', tokens: Math.max(0, rawMaxTokens - totalTokens), color: '#a1a1aa', isDeferred: true },
+    ].filter((category) => category.tokens > 0)
+
+    const filledSquares = Math.max(0, Math.min(100, Math.round((totalTokens / Math.max(1, rawMaxTokens)) * 100)))
+    const gridRows = Array.from({ length: 10 }, (_, row) =>
+      Array.from({ length: 10 }, (_, col) => {
+        const index = row * 10 + col
+        const isFilled = index < filledSquares
+        return {
+          color: isFilled ? '#8f3217' : '#a1a1aa',
+          isFilled,
+          categoryName: isFilled ? 'Input context' : 'Free space',
+          tokens: Math.round(rawMaxTokens / 100),
+          percentage: 1,
+          squareFullness: isFilled ? 1 : 0,
+        }
+      }),
+    )
+
+    return {
+      categories,
+      totalTokens,
+      maxTokens: rawMaxTokens,
+      rawMaxTokens,
+      percentage,
+      gridRows,
+      model: latest.model,
+      memoryFiles: [],
+      mcpTools: [],
+      agents: [],
+      apiUsage: {
+        input_tokens: latest.inputTokens,
+        output_tokens: latest.outputTokens,
+        cache_creation_input_tokens: latest.cacheCreationInputTokens,
+        cache_read_input_tokens: latest.cacheReadInputTokens,
+      },
+    }
   }
 
   async getTranscriptUsage(sessionId: string): Promise<TranscriptUsageSnapshot | null> {
@@ -794,7 +925,7 @@ export class SessionService {
           webSearchRequests: 0,
           costUSD: 0,
           costDisplay: '$0.0000',
-          contextWindow: getContextWindowForModel(model),
+          contextWindow: this.getTranscriptContextWindow(model),
           maxOutputTokens: getModelMaxOutputTokens(model).default,
         }
         models.set(model, modelUsage)

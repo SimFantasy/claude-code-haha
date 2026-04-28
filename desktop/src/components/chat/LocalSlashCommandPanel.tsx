@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { skillsApi } from '../../api/skills'
 import { mcpApi } from '../../api/mcp'
 import {
@@ -494,8 +494,19 @@ function ContextOverview({ context, categories, t }: { context: SessionContextSn
   )
 }
 
-function ContextTab({ context, error, t }: { context?: SessionContextSnapshot; error?: string; t: Translate }) {
+function ContextTab({
+  context,
+  error,
+  loading,
+  t,
+}: {
+  context?: SessionContextSnapshot
+  error?: string
+  loading?: boolean
+  t: Translate
+}) {
   if (error && !context) return <ErrorState message={error} />
+  if (loading && !context) return <LoadingState label={t('slash.inspector.context.loading')} />
   if (!context) {
     return <EmptyState title={t('slash.inspector.context.emptyTitle')} body={t('slash.inspector.context.emptyBody')} />
   }
@@ -668,6 +679,9 @@ function SessionInspectorPanel({
   const [selectedTab, setSelectedTab] = useState<SessionInspectorTab>(() => sessionInspectorInitialTab(command))
   const [data, setData] = useState<SessionInspectionResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [contextLoading, setContextLoading] = useState(false)
+  const [contextError, setContextError] = useState<string | null>(null)
+  const contextRequestSessionRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (command !== 'status' && command !== 'cost' && command !== 'context') return
@@ -682,7 +696,10 @@ function SessionInspectorPanel({
     let cancelled = false
     setData(null)
     setError(null)
-    sessionsApi.getInspection(sessionId)
+    setContextLoading(false)
+    setContextError(null)
+    contextRequestSessionRef.current = null
+    sessionsApi.getInspection(sessionId, { includeContext: false })
       .then((response) => {
         if (!cancelled) setData(assertSessionInspectionResponse(response, t))
       })
@@ -692,7 +709,41 @@ function SessionInspectorPanel({
     return () => {
       cancelled = true
     }
-  }, [sessionId])
+  }, [sessionId, t])
+
+  useEffect(() => {
+    if (!sessionId || selectedTab !== 'context' || data === null || data.context) return
+    if (contextRequestSessionRef.current === sessionId) return
+    contextRequestSessionRef.current = sessionId
+    let cancelled = false
+    setContextLoading(true)
+    setContextError(null)
+    sessionsApi.getInspection(sessionId, { includeContext: true, timeout: 45_000 })
+      .then((response) => {
+        if (cancelled) return
+        const inspected = assertSessionInspectionResponse(response, t)
+        setData((current) => current
+          ? {
+              ...current,
+              context: inspected.context,
+              errors: {
+                ...(current.errors ?? {}),
+                ...(inspected.errors ?? {}),
+              },
+            }
+          : inspected)
+        setContextError(inspected.errors?.context ?? null)
+      })
+      .catch((err) => {
+        if (!cancelled) setContextError(err instanceof Error ? err.message : String(err))
+      })
+      .finally(() => {
+        if (!cancelled) setContextLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [data, selectedTab, sessionId, t])
 
   const tabs: Array<{ id: SessionInspectorTab; label: string }> = [
     { id: 'status', label: t('slash.inspector.tab.status') },
@@ -709,7 +760,12 @@ function SessionInspectorPanel({
       ) : selectedTab === 'usage' ? (
         <UsageTab usage={data.usage} context={data.context} error={data.errors?.usage} t={t} />
       ) : selectedTab === 'context' ? (
-        <ContextTab context={data.context} error={data.errors?.context} t={t} />
+        <ContextTab
+          context={data.context ?? data.contextEstimate}
+          error={contextError ?? data.errors?.context}
+          loading={contextLoading && !data.contextEstimate}
+          t={t}
+        />
       ) : (
         <StatusTab data={data} commands={commands} t={t} />
       )}
